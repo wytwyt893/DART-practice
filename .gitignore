@@ -1,0 +1,32 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE settings
+.idea/
+.vscode/
+
+# Experiment artifacts
+wandb/
+logs/
+checkpoints/
+outputs/
+
+# Data files
+data/raw/
+data/processed/
+*.csv
+*.tsv
+*.jsonl
+*.pkl
+*.pt
+*.pth
+
+# OS files
+Thumbs.db
+.DS_Store
