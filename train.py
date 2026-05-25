@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader, random_split
 from data.dataloader import SyntheticDataset
 from models.router import SimpleRouter
 
+#==============================训练流程的最小闭环======================================
 
 def set_seed(seed: int = 42) -> None:
     """
@@ -78,19 +79,19 @@ def main() -> None:
     3. 构建一个简单的 MLP baseline
     4. 训练并输出每个 epoch 的结果
     """
-    # 固定随机性，减少每次结果波动。
+    # 1. 选择固定种子，固定随机性，减少每次结果波动。
     set_seed()
 
-    # 如果有 GPU 就优先使用 GPU，否则使用 CPU。
+    # 2.选择CPU/GPU,如果有 GPU 就优先使用 GPU，否则使用 CPU。
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 构造 toy 数据集。
+    # 3. 构造 toy 数据集。
     # num_samples=1200: 一共 1200 个样本
-    # feature_dim=1024: 每个样本是 1024 维特征向量
+    # feature_dim=10112: 每个样本是 10112 维特征向量
     # num_classes=3: 三分类任务
-    dataset = SyntheticDataset(num_samples=1200, feature_dim=1024, num_classes=3)
+    dataset = SyntheticDataset(num_samples=1200, feature_dim=10112, num_classes=3)
 
-    # 按 8:2 划分训练集和验证集。
+    # 4. 按 8:2 划分训练集和验证集。
     train_size = int(len(dataset) * 0.8)
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
@@ -103,16 +104,17 @@ def main() -> None:
     # batch_size 可以稍大一些，因为验证时没有反向传播。
     val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
 
-    # 创建最小 baseline 模型。
+    # 5.创建最小 baseline 模型
     # input_dim 必须与 feature_dim 对齐，否则第一层接不上输入。
-    model = SimpleRouter(input_dim=1024, hidden_dim=256, num_classes=3).to(device)
+    model = SimpleRouter(input_dim=10112, hidden_dim=256, num_classes=3).to(device)
 
-    # Adam 是常用优化器，适合快速起一个 baseline。
+    # 6.定义 Adam 优化器，适合快速起一个 baseline。
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
 
-    # 这里是标准多分类损失函数。
+    # 7.这里是标准多分类损失函数。
     loss_fn = nn.CrossEntropyLoss()
 
+    # 8. 训练循环
     # 先训练 10 个 epoch，作为 sanity check。
     epochs = 10
     for epoch in range(1, epochs + 1):
@@ -152,10 +154,11 @@ def main() -> None:
         train_loss = total_loss / total_examples
         train_acc = total_correct / total_examples
 
+        # 9.每个 epoch 后在验证集评估
         # 在验证集上做一次完整评估。
         val_loss, val_acc = evaluate(model, val_loader, device)
 
-        # 打印这一轮的训练 / 验证结果。
+        # 10.打印这一轮的训练 / 验证结果。
         print(
             f"Epoch {epoch:02d} | "
             f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "

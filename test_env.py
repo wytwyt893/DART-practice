@@ -4,6 +4,7 @@ import numpy
 import wandb
 import tqdm
 
+#===================================环境检查====================================
 # 1. 检查各库的版本
 print("PyTorch 版本:", torch.__version__)
 print("Torchvision 版本:", torchvision.__version__)

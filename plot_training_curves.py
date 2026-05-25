@@ -2,7 +2,9 @@ import argparse
 import re
 from pathlib import Path
 
+#==================================训练曲线绘制脚本====================================
 
+# 1. 这个脚本的作用是从 train.py 的日志里提取训练曲线数据，手动写死的一组训练结果
 DEFAULT_HISTORY = [
     {"epoch": 1, "train_loss": 0.5090, "train_acc": 0.7458, "val_loss": 0.3351, "val_acc": 0.8708},
     {"epoch": 2, "train_loss": 0.0815, "train_acc": 0.9990, "val_loss": 0.1746, "val_acc": 0.9792},
@@ -16,12 +18,12 @@ DEFAULT_HISTORY = [
     {"epoch": 10, "train_loss": 0.0015, "train_acc": 1.0000, "val_loss": 0.1182, "val_acc": 0.9708},
 ]
 
-
+# 2. 定义一个正则表达式，用来从日志文本里提取每一行的训练记录。
 LOG_PATTERN = re.compile(
     r"Epoch\s+(\d+)\s+\|\s+train_loss=([0-9.]+)\s+train_acc=([0-9.]+)\s+\|\s+val_loss=([0-9.]+)\s+val_acc=([0-9.]+)"
 )
 
-
+# 3. 解析命令行参数
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Plot training curves for the current sanity-check experiment."
@@ -40,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     )
     return parser.parse_args()
 
-
+# 4. 从日志文件里加载训练历史数据，如果没有提供日志文件，就用默认的那组数据。
 def load_history(log_file: Path | None) -> list[dict]:
     if log_file is None:
         return DEFAULT_HISTORY
@@ -67,7 +69,7 @@ def load_history(log_file: Path | None) -> list[dict]:
         raise ValueError("No training records matched the expected log format.")
     return history
 
-
+# 5. 根据加载的历史数据绘制训练曲线，并保存成图片。
 def plot_history(history: list[dict], out_path: Path) -> None:
     try:
         import matplotlib.pyplot as plt
@@ -109,7 +111,7 @@ def plot_history(history: list[dict], out_path: Path) -> None:
     fig.savefig(out_path, dpi=200, bbox_inches="tight")
     print(f"Saved plot to: {out_path}")
 
-
+# 6. 主函数，负责整体流程控制：解析参数、加载历史数据、绘制并保存图像。
 def main() -> None:
     args = parse_args()
     history = load_history(args.log_file)

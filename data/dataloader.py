@@ -1,6 +1,6 @@
 import torch
 from torch.utils.data import Dataset
-
+#==================================一个用于训练流程验证的合成数据集======================================
 
 class SyntheticDataset(Dataset):
     """
@@ -11,7 +11,7 @@ class SyntheticDataset(Dataset):
     这样模型就能学到东西，不会完全瞎猜。
     """
 
-    def __init__(self, num_samples: int = 1000, feature_dim: int = 1024, num_classes: int = 3):
+    def __init__(self, num_samples: int = 1000, feature_dim: int = 10112, num_classes: int = 3):
         """
         Args:
             num_samples: 数据集总样本数。
