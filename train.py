@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader, random_split
 from data.dataloader import SyntheticDataset
 from models.router import SimpleRouter
 
+from pathlib import Path
+
 #==============================训练流程的最小闭环======================================
 
 def set_seed(seed: int = 42) -> None:
@@ -114,56 +116,82 @@ def main() -> None:
     # 7.这里是标准多分类损失函数。
     loss_fn = nn.CrossEntropyLoss()
 
-    # 8. 训练循环
-    # 先训练 10 个 epoch，作为 sanity check。
-    epochs = 10
-    for epoch in range(1, epochs + 1):
-        # 切换到训练模式。
-        model.train()
+    log_path = Path("logs") / "router_sanity_log.txt" # 定义日志文件路径，存储训练过程中的指标数据
+    log_path.parent.mkdir(exist_ok=True, parents=True) # 确保 logs 目录存在，如果不存在就创建它, parents=True 允许创建多层目录，exist_ok=True 则在目录已经存在时不会报错
+    
+    checkpoint_dir = Path("checkpoints") # 定义模型检查点目录路径，存储训练过程中保存的模型权重文件
+    checkpoint_dir.mkdir(exist_ok=True, parents=True) # 确保 checkpoints 目录存在，如果不存在就创建它, parents=True 允许创建多层目录，exist_ok=True 则在目录已经存在时不会报错
 
-        total_loss = 0.0
-        total_correct = 0
-        total_examples = 0
+    last_ckpt_path = checkpoint_dir / "router_sanity_last.pth" # 定义最后一次训练的模型检查点文件路径，保存训练结束时的模型权重
+    best_ckpt_path = checkpoint_dir / "router_sanity_best.pth" # 定义最佳模型检查点文件路径，保存验证集上表现最好的模型权重
 
-        for features, labels in train_loader:
-            # 当前 batch 放到设备上。
-            features = features.to(device)
-            labels = labels.to(device)
+    best_val_acc = 0.0 # 初始化最佳验证准确率，用于后续比较和更新最佳模型检查点
 
-            # 清空上一步累积的梯度。
-            optimizer.zero_grad()
+    # 打开日志文件，准备写入训练过程中的指标数据
+    # 当前 train.py 的日志文件每次运行会覆盖旧结果，因为用了 "w" 模式
+    with open(log_path, "w", encoding="utf-8") as log_file: 
+        # 8. 训练循环
+        # 先训练 10 个 epoch，作为 sanity check。
+        epochs = 10
+        for epoch in range(1, epochs + 1):
+            # 切换到训练模式。
+            model.train()
 
-            # 前向传播，得到当前 batch 的预测 logits。
-            logits = model(features)
+            total_loss = 0.0 #初始化累计损失和正确数
+            total_correct = 0
+            total_examples = 0
 
-            # 计算当前 batch 的损失。
-            loss = loss_fn(logits, labels)
+            for features, labels in train_loader:
+                # 当前 batch 放到设备上。
+                features = features.to(device)
+                labels = labels.to(device)
 
-            # 反向传播，计算每个参数的梯度。
-            loss.backward()
+                # 清空上一步累积的梯度。
+                optimizer.zero_grad()
 
-            # 根据梯度更新参数。
-            optimizer.step()
+                # 前向传播，得到当前 batch 的预测 logits。
+                logits = model(features)
 
-            # 累计当前 epoch 的损失和正确数。
-            total_loss += loss.item() * labels.size(0)
-            total_correct += (logits.argmax(dim=1) == labels).sum().item()
-            total_examples += labels.size(0)
+                # 计算当前 batch 的损失。
+                loss = loss_fn(logits, labels)
 
-        # 计算当前 epoch 的训练集平均指标。
-        train_loss = total_loss / total_examples
-        train_acc = total_correct / total_examples
+                # 反向传播，计算每个参数的梯度。
+                loss.backward()
 
-        # 9.每个 epoch 后在验证集评估
-        # 在验证集上做一次完整评估。
-        val_loss, val_acc = evaluate(model, val_loader, device)
+                # 根据梯度更新参数。
+                optimizer.step()
 
-        # 10.打印这一轮的训练 / 验证结果。
-        print(
-            f"Epoch {epoch:02d} | "
-            f"train_loss={train_loss:.4f} train_acc={train_acc:.4f} | "
-            f"val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
-        )
+                # 累计当前 epoch 的损失和正确数。
+                total_loss += loss.item() * labels.size(0)
+                total_correct += (logits.argmax(dim=1) == labels).sum().item()
+                total_examples += labels.size(0)
+
+            # 计算当前 epoch 的训练集平均指标。
+            train_loss = total_loss / total_examples
+            train_acc = total_correct / total_examples
+
+            # 9.每个 epoch 后在验证集评估
+            # 在验证集上做一次完整评估。
+            val_loss, val_acc = evaluate(model, val_loader, device)
+            
+            # 构造当前 epoch 的模型检查点数据，包含 epoch 编号、模型权重、优化器状态、验证集指标等信息，方便后续保存和加载模型
+            checkpoint = {
+                "epoch": epoch,
+                "model_state_dict": model.state_dict(),
+                "optimizer_state_dict": optimizer.state_dict(),
+                "val_loss": val_loss,
+                "val_acc": val_acc,
+            }
+            torch.save(checkpoint, last_ckpt_path) # 保存当前 epoch 的模型检查点到 last_ckpt_path 定义的路径，覆盖之前的检查点文件
+            if val_acc > best_val_acc:
+                best_val_acc = val_acc
+                torch.save(checkpoint, best_ckpt_path) # 如果当前 epoch 的验证准确率超过之前的最佳值，就更新最佳模型检查点文件，保存当前 epoch 的模型权重和相关信息
+
+            # 10.打印这一轮的训练 / 验证结果。
+            # 同时把结果写到日志文件里，方便后续查看。
+            log_line = f"Epoch {epoch:02d} | train_loss={train_loss:.4f} train_acc={train_acc:.4f} | val_loss={val_loss:.4f} val_acc={val_acc:.4f}"
+            print(log_line)
+            log_file.write(log_line + "\n") # 把每个 epoch 的结果写到日志文件里，方便后续查看和分析
 
     # 正常训练结束后的提示。
     print(f"Finished training on {device}.")
