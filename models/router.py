@@ -9,12 +9,13 @@ class SimpleRouter(nn.Module):
     input -> Linear -> ReLU -> Dropout -> Linear -> logits
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int, num_classes: int): #网络层定义
+    def __init__(self, input_dim: int, hidden_dim: int, num_classes: int, dropout: float): #网络层定义
         """
         Args:
             input_dim: 输入特征维度。
             hidden_dim: 隐藏层宽度。
             num_classes: 输出类别数，也可以理解成路由选择数。
+            dropout: Dropout 概率。
         """
         super().__init__() # 这行是必须的，调用父类的构造函数，确保 nn.Module 的内部机制正常工作。
 
@@ -29,7 +30,7 @@ class SimpleRouter(nn.Module):
             nn.ReLU(),
 
             # 加入 dropout，随机丢弃一些神经元，帮助防止过拟合
-            nn.Dropout(p=0.1),  # 10% 的概率丢弃神经元，剩下的神经元输出会被放大到原来的 1/(1-0.1)=1.11 倍，以保持整体输出的期望不变。
+            nn.Dropout(p=dropout),
             
             # 第二层线性层:
             # 把隐藏表示映射成最终的类别分数 logits。

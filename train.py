@@ -1,5 +1,6 @@
 import random
 
+import yaml
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
@@ -10,6 +11,13 @@ from models.router import SimpleRouter
 from pathlib import Path
 
 #==============================训练流程的最小闭环======================================
+def load_config(config_path: str) -> dict: 
+    """
+    从 YAML 文件中读取实验配置。
+    """
+    with open(config_path, "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f) # yaml.safe_load() 是 PyYAML 库提供的一个函数，用于从 YAML 格式的字符串或文件中解析数据，并将其转换为 Python 对象（通常是字典）。相比于 yaml.load()，yaml.safe_load() 在解析过程中会限制一些不安全的 YAML 标签，避免执行潜在的恶意代码，因此更推荐使用 safe_load 来加载配置文件。
+    return config
 
 def set_seed(seed: int = 42) -> None:
     """
@@ -81,8 +89,12 @@ def main() -> None:
     3. 构建一个简单的 MLP baseline
     4. 训练并输出每个 epoch 的结果
     """
+    config = load_config("configs/router_sanity.yaml") # 从指定路径加载 YAML 配置文件，返回一个包含配置信息的字典对象，供后续训练流程使用
+    print(f"Loaded config: {config['experiment_name']}")
+
     # 1. 选择固定种子，固定随机性，减少每次结果波动。
-    set_seed()
+    seed = config.get("seed", 42)
+    set_seed(seed)
 
     # 2.选择CPU/GPU,如果有 GPU 就优先使用 GPU，否则使用 CPU。
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -91,39 +103,46 @@ def main() -> None:
     # num_samples=1200: 一共 1200 个样本
     # feature_dim=10112: 每个样本是 10112 维特征向量
     # num_classes=3: 三分类任务
-    dataset = SyntheticDataset(num_samples=1200, feature_dim=10112, num_classes=3)
+    dataset = SyntheticDataset(num_samples=config["data"]["num_samples"], feature_dim=config["data"]["feature_dim"], num_classes=config["data"]["num_routes"])
 
     # 4. 按 8:2 划分训练集和验证集。
-    train_size = int(len(dataset) * 0.8)
+    train_ratio = config["data"]["train_ratio"]
+    train_size = int(len(dataset) * train_ratio)
     val_size = len(dataset) - train_size
     train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
 
     # DataLoader 负责把单个样本打包成 batch。
     # 训练集打乱顺序，避免顺序偏差影响训练。
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    train_loader = DataLoader(train_dataset, batch_size=config["training"]["train_batch_size"], shuffle=True)
 
     # 验证集不需要打乱，只负责稳定评估。
     # batch_size 可以稍大一些，因为验证时没有反向传播。
-    val_loader = DataLoader(val_dataset, batch_size=128, shuffle=False)
+    val_loader = DataLoader(val_dataset, batch_size=config["training"]["val_batch_size"], shuffle=False)
 
     # 5.创建最小 baseline 模型
     # input_dim 必须与 feature_dim 对齐，否则第一层接不上输入。
-    model = SimpleRouter(input_dim=10112, hidden_dim=256, num_classes=3).to(device)
+    model = SimpleRouter(
+        input_dim=config["model"]["input_dim"], 
+        hidden_dim=config["model"]["hidden_dim"], 
+        num_classes=config["model"]["num_routes"],
+        dropout=config["model"]["dropout"]
+    ).to(device)
 
     # 6.定义 Adam 优化器，适合快速起一个 baseline。
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+    lr = config["training"]["lr"]
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     # 7.这里是标准多分类损失函数。
     loss_fn = nn.CrossEntropyLoss()
 
-    log_path = Path("logs") / "router_sanity_log.txt" # 定义日志文件路径，存储训练过程中的指标数据
+    log_path = Path(config["outputs"]["log_file"]) # 定义日志文件路径，存储训练过程中的指标数据
     log_path.parent.mkdir(exist_ok=True, parents=True) # 确保 logs 目录存在，如果不存在就创建它, parents=True 允许创建多层目录，exist_ok=True 则在目录已经存在时不会报错
     
-    checkpoint_dir = Path("checkpoints") # 定义模型检查点目录路径，存储训练过程中保存的模型权重文件
-    checkpoint_dir.mkdir(exist_ok=True, parents=True) # 确保 checkpoints 目录存在，如果不存在就创建它, parents=True 允许创建多层目录，exist_ok=True 则在目录已经存在时不会报错
+    last_ckpt_path = Path(config["outputs"]["last_checkpoint"]) # 定义最后一次训练的模型检查点文件路径，保存训练结束时的模型权重
+    best_ckpt_path = Path(config["outputs"]["best_checkpoint"]) # 定义最佳模型检查点文件路径，保存验证集上表现最好的模型权重
 
-    last_ckpt_path = checkpoint_dir / "router_sanity_last.pth" # 定义最后一次训练的模型检查点文件路径，保存训练结束时的模型权重
-    best_ckpt_path = checkpoint_dir / "router_sanity_best.pth" # 定义最佳模型检查点文件路径，保存验证集上表现最好的模型权重
+    last_ckpt_path.parent.mkdir(exist_ok=True, parents=True)
+    best_ckpt_path.parent.mkdir(exist_ok=True, parents=True)
 
     best_val_acc = 0.0 # 初始化最佳验证准确率，用于后续比较和更新最佳模型检查点
 
@@ -132,7 +151,8 @@ def main() -> None:
     with open(log_path, "w", encoding="utf-8") as log_file: 
         # 8. 训练循环
         # 先训练 10 个 epoch，作为 sanity check。
-        epochs = 10
+        epochs = config["training"]["epochs"]
+
         for epoch in range(1, epochs + 1):
             # 切换到训练模式。
             model.train()
@@ -173,7 +193,7 @@ def main() -> None:
             # 9.每个 epoch 后在验证集评估
             # 在验证集上做一次完整评估。
             val_loss, val_acc = evaluate(model, val_loader, device)
-            
+
             # 构造当前 epoch 的模型检查点数据，包含 epoch 编号、模型权重、优化器状态、验证集指标等信息，方便后续保存和加载模型
             checkpoint = {
                 "epoch": epoch,
