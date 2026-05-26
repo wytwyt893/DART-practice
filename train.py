@@ -1,6 +1,3 @@
-import random
-
-import yaml
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, random_split
@@ -10,77 +7,11 @@ from models.router import SimpleRouter
 
 from pathlib import Path
 
+from utils.config import load_config #导入utils/config.py中的load_config函数，用于从 YAML 文件中读取实验配置，返回一个包含配置信息的字典对象，供后续训练流程使用
+from utils.seed import set_seed #导入utils/seed.py中的set_seed函数，用于设置随机种子，确保训练过程的可重复性，减少每次结果的波动
+from utils.metrics import evaluate #导入utils/metrics.py中的evaluate函数，用于在验证集上评估模型的性能，返回平均损失和准确率，供训练循环中每个 epoch 后的评估使用
+
 #==============================训练流程的最小闭环======================================
-def load_config(config_path: str) -> dict: 
-    """
-    从 YAML 文件中读取实验配置。
-    """
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) # yaml.safe_load() 是 PyYAML 库提供的一个函数，用于从 YAML 格式的字符串或文件中解析数据，并将其转换为 Python 对象（通常是字典）。相比于 yaml.load()，yaml.safe_load() 在解析过程中会限制一些不安全的 YAML 标签，避免执行潜在的恶意代码，因此更推荐使用 safe_load 来加载配置文件。
-    return config
-
-def set_seed(seed: int = 42) -> None:
-    """
-    固定随机种子，尽量让每次运行结果保持一致，方便复现实验。
-
-    Args:
-        seed: 同时作用于 Python random 和 PyTorch 的随机种子。
-    """
-    random.seed(seed)
-    torch.manual_seed(seed)
-
-
-def evaluate(model: nn.Module, dataloader: DataLoader, device: torch.device) -> tuple[float, float]:
-    """
-    在验证集上完整跑一轮，返回平均 loss 和准确率。
-
-    Args:
-        model: 要评估的模型。
-        dataloader: 验证集的 DataLoader，每次提供一个 batch。
-        device: 当前运行设备，通常是 CPU 或 GPU。
-
-    Returns:
-        (avg_loss, accuracy)
-    """
-    # 切换到评估模式。
-    # 如果以后模型中加入 Dropout / BatchNorm，这一步会影响它们的行为。
-    model.eval()
-
-    loss_fn = nn.CrossEntropyLoss()
-    total_loss = 0.0
-    total_correct = 0
-    total_examples = 0
-
-    # 验证阶段不需要反向传播，因此关闭梯度计算以节省显存和时间。
-    with torch.no_grad():
-        for features, labels in dataloader:
-            # 把当前 batch 放到同一个设备上，避免设备不一致报错。
-            features = features.to(device)
-            labels = labels.to(device)
-
-            # 前向传播：输入特征，输出每个类别的 logits。
-            logits = model(features)
-
-            # 计算当前 batch 的损失。
-            loss = loss_fn(logits, labels)
-
-            # 这里做的是“按样本数加权”的累计。
-            # 因为 loss.item() 是当前 batch 的平均 loss，
-            # 乘上 labels.size(0) 才能还原成当前 batch 的总 loss。
-            total_loss += loss.item() * labels.size(0)
-
-            # 统计当前 batch 预测正确了多少个样本。
-            total_correct += (logits.argmax(dim=1) == labels).sum().item()
-
-            # 统计一共看了多少个样本。
-            total_examples += labels.size(0)
-
-    # 把累计值转换成整个验证集上的平均指标。
-    avg_loss = total_loss / total_examples
-    accuracy = total_correct / total_examples
-    return avg_loss, accuracy
-
-
 def main() -> None:
     """
     构建一个最小可运行的训练闭环：

@@ -10,12 +10,14 @@
 
 - 后续会根据UMMs路线进一步调研并优化encoder方面的创新尝试
 
-- 5.25：补充真实参数量、日志和检查点功能
+- 5.25：补充真实参数量、日志、检查点、配置文件读取和独立评估脚本
 
 ## Current Stage
 
 - 当前完成 synthetic sanity check，不是完整 TableDART
-- 已完成**模拟数据集** - **基础双层MLP** - **训练脚本** - **日志检查点目录** 的设计
+- 已完成 **模拟数据集** - **基础双层 MLP Router** - **配置驱动训练脚本** - **日志与检查点保存** - **独立评估脚本** 的最小实验闭环
+- 当前 `train.py` 已支持从 `configs/router_sanity.yaml` 读取主要实验参数
+- 当前 `eval.py` 已支持加载 `router_sanity_best.pth` 并复现验证集指标
 
 ## Environment
 
@@ -75,13 +77,21 @@ if torch.cuda.is_available():
 
 ## How to Run
 
-运行当前的 TableDART-router-like synthetic sanity check 实验：
+### 1. 训练 Router Sanity Check
+
+运行当前的 TableDART-router-like synthetic sanity check 训练实验：
 
 ```powershell
 python train.py
 ```
 
-该命令会在合成的 10112 维特征上训练一个双层 MLP 路由器，并将每个 epoch 的训练和验证指标写入：
+该命令会读取以下配置文件：
+
+```text
+configs/router_sanity.yaml
+```
+
+随后在合成的 10112 维特征上训练一个双层 MLP 路由器，并将每个 epoch 的训练和验证指标写入：
 
 ```text
 logs/router_sanity_log.txt
@@ -93,6 +103,24 @@ logs/router_sanity_log.txt
 checkpoints/router_sanity_last.pth
 checkpoints/router_sanity_best.pth
 ```
+
+### 2. 独立评估 Best Checkpoint
+
+训练完成后，可以使用 `eval.py` 单独加载最佳 checkpoint，并在验证集上重新计算指标：
+
+```powershell
+python eval.py
+```
+
+该命令会读取：
+
+```text
+checkpoints/router_sanity_best.pth
+```
+
+并输出 checkpoint 中保存的 epoch、验证集准确率，以及重新评估得到的 `val_loss` 和 `val_acc`。
+
+### 3. 绘制训练曲线
 
 如果需要根据训练日志绘制 loss 和 accuracy 曲线，可以运行：
 
@@ -127,12 +155,28 @@ configs/router_sanity.yaml
 | 训练轮数 | 10 |
 | 训练 batch size | 64 |
 | 验证 batch size | 128 |
+| 最佳 checkpoint | checkpoints/router_sanity_best.pth |
 
-当前一次运行中的最佳验证集准确率为：
+当前一次训练运行中的最佳验证集准确率为：
 
 ```text
 val_acc = 0.9458
 ```
+
+最佳 checkpoint 出现在第 2 个 epoch：
+
+```text
+Best checkpoint epoch = 2
+```
+
+使用 `eval.py` 加载 `router_sanity_best.pth` 后，重新评估得到：
+
+```text
+val_loss = 0.1363
+val_acc  = 0.9458
+```
+
+这说明当前实验已经完成了从训练、保存 checkpoint 到独立加载并复现验证集结果的闭环。
 
 需要注意：该结果只说明当前 synthetic 数据上的训练流程是可运行、可学习的；它不是完整 TableDART 在真实 benchmark 上的复现结果。
 
@@ -140,9 +184,9 @@ val_acc = 0.9458
 
 后续计划包括：
 
-- 让 `train.py` 自动读取 `configs/router_sanity.yaml` 中的超参数，减少手动修改代码带来的误差。
-- 增加一个单独的评估脚本，用于加载 `router_sanity_best.pth` 并验证模型。
-- 将代码中的普通分类命名逐步改成路由语义命名，例如 `num_routes`、`route_labels`、`route_logits`。
+- 将 `train.py` 和 `eval.py` 中重复出现的 `load_config`、`set_seed`、`evaluate` 等函数逐步抽取到 `utils/` 目录中。
+- 将代码中的普通分类命名进一步改成路由语义命名，例如 `num_routes`、`route_labels`、`route_logits`。
+- 增加命令行参数，使 `train.py` 和 `eval.py` 可以指定不同的 config 文件。
 - 将当前 synthetic 特征逐步替换为更接近真实表格/多模态任务的特征。
 - 阅读和整理原始 TableDART baseline，优先确定最适合本科生复现的 router 模块部分。
 - 在完成 router 模块复现后，再考虑更复杂的 early-fusion、多路 decoder 和 Agent/tool 包装。

@@ -1,53 +1,12 @@
-import yaml 
 import torch
 from pathlib import Path
 from models.router import SimpleRouter
-from torch import nn
+
 from torch.utils.data import DataLoader, random_split
 from data.dataloader import SyntheticDataset
-import random
-
-def set_seed(seed: int):
-    random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-
-def load_config(config_path: str) -> dict:
-    """
-    从 YAML 文件中读取实验配置。
-    """
-    with open(config_path, "r", encoding="utf-8") as f:
-        config = yaml.safe_load(f) # yaml.safe_load() 是 PyYAML 库提供的一个函数，用于从 YAML 格式的字符串或文件中解析数据，并将其转换为 Python 对象（通常是字典）。相比于 yaml.load()，yaml.safe_load() 在解析过程中会限制一些不安全的 YAML 标签，避免执行潜在的恶意代码，因此更推荐使用 safe_load 来加载配置文件。
-    return config
-
-def evaluate(model, dataloader, device):
-    model.eval()
-
-    loss_fn = nn.CrossEntropyLoss()
-    total_loss = 0.0
-    total_correct = 0
-    total_examples = 0
-
-    with torch.no_grad():
-        for features, labels in dataloader:
-            features = features.to(device)
-            labels = labels.to(device)
-
-            logits = model(features)
-
-            loss = loss_fn(logits, labels)
-
-            total_loss += loss.item() * features.size(0)
-
-            total_correct += (logits.argmax(dim=1) == labels).sum().item()
-
-            total_examples += features.size(0)
-
-    avg_loss = total_loss / total_examples
-    accuracy = total_correct / total_examples
-    return avg_loss, accuracy
-
+from utils.config import load_config
+from utils.seed import set_seed
+from utils.metrics import evaluate
 
 def main():
 
