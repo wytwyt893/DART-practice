@@ -1,0 +1,27 @@
+# 有 dropout vs 无 dropout
+# Dropout ablation: no dropout setting.
+experiment_name: router_dropout_0
+seed: 42
+
+data:
+  num_samples: 1200
+  feature_dim: 10112
+  num_routes: 3
+  train_ratio: 0.8
+
+model:
+  input_dim: 10112
+  hidden_dim: 256
+  dropout: 0.0
+  num_routes: 3
+
+training:
+  epochs: 10
+  train_batch_size: 64
+  val_batch_size: 128
+  lr: 0.001
+
+outputs:
+  log_file: logs/router_dropout_0_log.txt
+  last_checkpoint: checkpoints/router_dropout_0_last.pth
+  best_checkpoint: checkpoints/router_dropout_0_best.pth

@@ -10,7 +10,7 @@
 
 - 后续会根据UMMs路线进一步调研并优化encoder方面的创新尝试
 
-- 5.25：补充真实参数量、日志、检查点、配置文件读取和独立评估脚本
+- 5.25：补充真实参数量、日志、检查点、配置文件读取、独立评估脚本和命令行 config 参数
 
 ## Current Stage
 
@@ -18,6 +18,7 @@
 - 已完成 **模拟路由数据集** - **基础双层 MLP Router** - **配置驱动训练脚本** - **日志与检查点保存** - **独立评估脚本** 的最小实验闭环
 - 当前 `train.py` 已支持从 `configs/router_sanity.yaml` 读取主要实验参数
 - 当前 `eval.py` 已支持加载 `router_sanity_best.pth` 并复现验证集指标
+- 当前 `train.py` 和 `eval.py` 均支持通过 `--config` 指定不同实验配置文件
 - 当前代码已开始将普通分类语义逐步替换为路由语义，例如 `MLPRouter`、`num_routes`、`route_labels`、`route_logits`
 
 ## Environment
@@ -86,10 +87,16 @@ if torch.cuda.is_available():
 python train.py
 ```
 
-该命令会读取以下配置文件：
+默认情况下，该命令会读取以下配置文件：
 
 ```text
 configs/router_sanity.yaml
+```
+
+也可以显式指定配置文件：
+
+```powershell
+python train.py --config configs/router_sanity.yaml
 ```
 
 随后在合成的 10112 维特征上训练一个双层 MLP 路由器。该路由器学习从输入特征预测三路路由标签，并将每个 epoch 的训练和验证指标写入：
@@ -113,6 +120,12 @@ checkpoints/router_sanity_best.pth
 python eval.py
 ```
 
+也可以显式指定评估所用配置文件：
+
+```powershell
+python eval.py --config configs/router_sanity.yaml
+```
+
 该命令会读取：
 
 ```text
@@ -126,13 +139,27 @@ checkpoints/router_sanity_best.pth
 如果需要根据训练日志绘制 loss 和 accuracy 曲线，可以运行：
 
 ```powershell
-python plot_training_curves.py --log-file logs/router_sanity_log.txt --out logs/router_sanity_curves.png
+python scripts/plot_training_curves.py --log-file logs/router_sanity_log.txt --out logs/router_sanity_curves.png
 ```
 
 生成的曲线图会保存在：
 
 ```text
 logs/router_sanity_curves.png
+```
+
+### 4. 汇总 Dropout 消融实验
+
+当前 dropout 消融实验记录保存在：
+
+```text
+results/dropout_ablation.md
+```
+
+如果需要从日志重新生成 dropout 对比表格，可以运行：
+
+```powershell
+python scripts/summarize_dropout_ablation.py
 ```
 
 ## Current Result
@@ -186,8 +213,9 @@ val_acc  = 0.9458
 
 后续计划包括：
 
+- 在更多随机种子上重复 dropout 消融实验，观察当前结果是否稳定。
+- 将 dropout 消融结果和曲线图整理为组会展示材料。
 - 继续清理代码中的普通分类表述，将训练、评估和可视化中的变量命名统一为路由语义，例如 `route_labels`、`route_logits`、`route_acc`。
-- 增加命令行参数，使 `train.py` 和 `eval.py` 可以指定不同的 config 文件。
 - 将当前 synthetic 特征逐步替换为更接近真实表格/多模态任务的特征。
 - 阅读和整理原始 TableDART baseline，优先确定最适合本科生复现的 router 模块部分。
 - 在完成 router 模块复现后，再考虑更复杂的 early-fusion、多路 decoder 和 Agent/tool 包装。

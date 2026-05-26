@@ -147,7 +147,7 @@ def main() -> None:
             # 构造当前 epoch 的模型检查点数据，包含 epoch 编号、模型权重、优化器状态、验证集指标等信息，方便后续保存和加载模型
             checkpoint = {
                 "epoch": epoch,
-                "model_state_dict": model.state_dict(),
+                "model_state_dict": model.state_dict(), #保存的是模型每一层的权重和偏置，即训练好的模型参数
                 "optimizer_state_dict": optimizer.state_dict(),
                 "val_loss": val_loss,
                 "val_acc": val_acc,
