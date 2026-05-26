@@ -1,7 +1,7 @@
 from torch import nn
 #===============一个简单的 MLP 分类器，作为 router 的第一个 baseline======================
 
-class SimpleRouter(nn.Module):
+class MLPRouter(nn.Module):
     """
     一个很小的 MLP 分类器，作为当前的第一个 router baseline。
 
@@ -9,12 +9,12 @@ class SimpleRouter(nn.Module):
     input -> Linear -> ReLU -> Dropout -> Linear -> logits
     """
 
-    def __init__(self, input_dim: int, hidden_dim: int, num_classes: int, dropout: float): #网络层定义
+    def __init__(self, input_dim: int, hidden_dim: int, num_routes: int, dropout: float): #网络层定义
         """
         Args:
             input_dim: 输入特征维度。
             hidden_dim: 隐藏层宽度。
-            num_classes: 输出类别数，也可以理解成路由选择数。
+            num_routes: 输出路由数，也可以理解成路由选择数。
             dropout: Dropout 概率。
         """
         super().__init__() # 这行是必须的，调用父类的构造函数，确保 nn.Module 的内部机制正常工作。
@@ -34,7 +34,7 @@ class SimpleRouter(nn.Module):
             
             # 第二层线性层:
             # 把隐藏表示映射成最终的类别分数 logits。
-            nn.Linear(hidden_dim, num_classes),
+            nn.Linear(hidden_dim, num_routes),
         )
 
     def forward(self, inputs): # forward 方法定义了模型的前向传播逻辑
@@ -43,6 +43,6 @@ class SimpleRouter(nn.Module):
             inputs: 输入张量，形状是 [batch_size, input_dim]。
 
         Returns:
-            输出 logits，形状是 [batch_size, num_classes]。
+            输出 logits，形状是 [batch_size, num_routes]。
         """
         return self.network(inputs)

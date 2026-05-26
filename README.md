@@ -15,9 +15,10 @@
 ## Current Stage
 
 - 当前完成 synthetic sanity check，不是完整 TableDART
-- 已完成 **模拟数据集** - **基础双层 MLP Router** - **配置驱动训练脚本** - **日志与检查点保存** - **独立评估脚本** 的最小实验闭环
+- 已完成 **模拟路由数据集** - **基础双层 MLP Router** - **配置驱动训练脚本** - **日志与检查点保存** - **独立评估脚本** 的最小实验闭环
 - 当前 `train.py` 已支持从 `configs/router_sanity.yaml` 读取主要实验参数
 - 当前 `eval.py` 已支持加载 `router_sanity_best.pth` 并复现验证集指标
+- 当前代码已开始将普通分类语义逐步替换为路由语义，例如 `MLPRouter`、`num_routes`、`route_labels`、`route_logits`
 
 ## Environment
 
@@ -91,7 +92,7 @@ python train.py
 configs/router_sanity.yaml
 ```
 
-随后在合成的 10112 维特征上训练一个双层 MLP 路由器，并将每个 epoch 的训练和验证指标写入：
+随后在合成的 10112 维特征上训练一个双层 MLP 路由器。该路由器学习从输入特征预测三路路由标签，并将每个 epoch 的训练和验证指标写入：
 
 ```text
 logs/router_sanity_log.txt
@@ -118,7 +119,7 @@ python eval.py
 checkpoints/router_sanity_best.pth
 ```
 
-并输出 checkpoint 中保存的 epoch、验证集准确率，以及重新评估得到的 `val_loss` 和 `val_acc`。
+并输出 checkpoint 中保存的 epoch、验证集路由预测准确率，以及重新评估得到的 `val_loss` 和 `val_acc`。
 
 ### 3. 绘制训练曲线
 
@@ -148,7 +149,8 @@ configs/router_sanity.yaml
 |---|---|
 | 输入特征维度 | 10112 |
 | 隐藏层维度 | 256 |
-| 路由类别数 | 3 |
+| 路由数 | 3 |
+| 路由标签 | synthetic route labels |
 | Dropout | 0.1 |
 | 优化器 | Adam |
 | 学习率 | 0.001 |
@@ -157,7 +159,7 @@ configs/router_sanity.yaml
 | 验证 batch size | 128 |
 | 最佳 checkpoint | checkpoints/router_sanity_best.pth |
 
-当前一次训练运行中的最佳验证集准确率为：
+当前一次训练运行中的最佳验证集路由预测准确率为：
 
 ```text
 val_acc = 0.9458
@@ -176,16 +178,15 @@ val_loss = 0.1363
 val_acc  = 0.9458
 ```
 
-这说明当前实验已经完成了从训练、保存 checkpoint 到独立加载并复现验证集结果的闭环。
+这说明当前实验已经完成了从训练、保存 checkpoint 到独立加载并复现验证集路由预测结果的闭环。
 
-需要注意：该结果只说明当前 synthetic 数据上的训练流程是可运行、可学习的；它不是完整 TableDART 在真实 benchmark 上的复现结果。
+需要注意：该结果只说明当前 synthetic route labels 上的训练流程是可运行、可学习的；它不是完整 TableDART 在真实 benchmark 上的复现结果，也不代表真实表格多模态任务中的最终路由性能。
 
 ## Next Steps
 
 后续计划包括：
 
-- 将 `train.py` 和 `eval.py` 中重复出现的 `load_config`、`set_seed`、`evaluate` 等函数逐步抽取到 `utils/` 目录中。
-- 将代码中的普通分类命名进一步改成路由语义命名，例如 `num_routes`、`route_labels`、`route_logits`。
+- 继续清理代码中的普通分类表述，将训练、评估和可视化中的变量命名统一为路由语义，例如 `route_labels`、`route_logits`、`route_acc`。
 - 增加命令行参数，使 `train.py` 和 `eval.py` 可以指定不同的 config 文件。
 - 将当前 synthetic 特征逐步替换为更接近真实表格/多模态任务的特征。
 - 阅读和整理原始 TableDART baseline，优先确定最适合本科生复现的 router 模块部分。

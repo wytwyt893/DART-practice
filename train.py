@@ -3,7 +3,7 @@ from torch import nn
 from torch.utils.data import DataLoader, random_split
 
 from data.dataloader import SyntheticDataset
-from models.router import SimpleRouter
+from models.router import MLPRouter
 
 from pathlib import Path
 
@@ -33,8 +33,8 @@ def main() -> None:
     # 3. 构造 toy 数据集。
     # num_samples=1200: 一共 1200 个样本
     # feature_dim=10112: 每个样本是 10112 维特征向量
-    # num_classes=3: 三分类任务
-    dataset = SyntheticDataset(num_samples=config["data"]["num_samples"], feature_dim=config["data"]["feature_dim"], num_classes=config["data"]["num_routes"])
+    # num_routes=3: 三分类任务
+    dataset = SyntheticDataset(num_samples=config["data"]["num_samples"], feature_dim=config["data"]["feature_dim"], num_routes=config["data"]["num_routes"])
 
     # 4. 按 8:2 划分训练集和验证集。
     train_ratio = config["data"]["train_ratio"]
@@ -52,10 +52,10 @@ def main() -> None:
 
     # 5.创建最小 baseline 模型
     # input_dim 必须与 feature_dim 对齐，否则第一层接不上输入。
-    model = SimpleRouter(
+    model = MLPRouter(
         input_dim=config["model"]["input_dim"], 
         hidden_dim=config["model"]["hidden_dim"], 
-        num_classes=config["model"]["num_routes"],
+        num_routes=config["model"]["num_routes"],
         dropout=config["model"]["dropout"]
     ).to(device)
 
@@ -92,19 +92,19 @@ def main() -> None:
             total_correct = 0
             total_examples = 0
 
-            for features, labels in train_loader:
+            for features, route_labels in train_loader:
                 # 当前 batch 放到设备上。
                 features = features.to(device)
-                labels = labels.to(device)
+                route_labels = route_labels.to(device)
 
                 # 清空上一步累积的梯度。
                 optimizer.zero_grad()
 
                 # 前向传播，得到当前 batch 的预测 logits。
-                logits = model(features)
+                route_logits = model(features)
 
                 # 计算当前 batch 的损失。
-                loss = loss_fn(logits, labels)
+                loss = loss_fn(route_logits, route_labels)
 
                 # 反向传播，计算每个参数的梯度。
                 loss.backward()
@@ -113,9 +113,9 @@ def main() -> None:
                 optimizer.step()
 
                 # 累计当前 epoch 的损失和正确数。
-                total_loss += loss.item() * labels.size(0)
-                total_correct += (logits.argmax(dim=1) == labels).sum().item()
-                total_examples += labels.size(0)
+                total_loss += loss.item() * route_labels.size(0)
+                total_correct += (route_logits.argmax(dim=1) == route_labels).sum().item()
+                total_examples += route_labels.size(0)
 
             # 计算当前 epoch 的训练集平均指标。
             train_loss = total_loss / total_examples

@@ -13,7 +13,7 @@ Pipeline from left to right:
    subtitle: random features + class-dependent signal injection
 2. DataLoader
    subtitle: batch_size=64, shuffle for train
-3. SimpleRouter MLP
+3. MLPRouter MLP
    subtitle: Linear(1024 -> 256) + ReLU + Linear(256 -> 3)
 4. CrossEntropyLoss
    subtitle: compare logits with labels
@@ -46,7 +46,7 @@ Input feature vector (1024-d)
 Annotate clearly:
 - input_dim = 1024
 - hidden_dim = 256
-- num_classes = 3
+- num_routes = 3
 - this is a baseline MLP, not yet a dynamic routing model
 
 Add a footer note:

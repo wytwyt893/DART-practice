@@ -1,6 +1,6 @@
 import torch
 from pathlib import Path
-from models.router import SimpleRouter
+from models.router import MLPRouter
 
 from torch.utils.data import DataLoader, random_split
 from data.dataloader import SyntheticDataset
@@ -28,7 +28,7 @@ def main():
     dataset = SyntheticDataset(
         num_samples=config["data"]["num_samples"],
         feature_dim=config["data"]["feature_dim"],
-        num_classes=config["data"]["num_routes"],
+        num_routes=config["data"]["num_routes"],
     )
     
     # 6.划分训练集和验证集
@@ -53,10 +53,10 @@ def main():
     print("Best checkpoint val_acc:", checkpoint["val_acc"])
 
     # 10.初始化模型
-    model = SimpleRouter(
+    model = MLPRouter(
         input_dim=config["model"]["input_dim"],
         hidden_dim=config["model"]["hidden_dim"],
-        num_classes=config["model"]["num_routes"],
+        num_routes=config["model"]["num_routes"],
         dropout=config["model"]["dropout"],
     ).to(device)
 
