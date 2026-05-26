@@ -7,11 +7,28 @@ from models.router import MLPRouter
 
 from pathlib import Path
 
+import argparse
+
 from utils.config import load_config #导入utils/config.py中的load_config函数，用于从 YAML 文件中读取实验配置，返回一个包含配置信息的字典对象，供后续训练流程使用
 from utils.seed import set_seed #导入utils/seed.py中的set_seed函数，用于设置随机种子，确保训练过程的可重复性，减少每次结果的波动
 from utils.metrics import evaluate #导入utils/metrics.py中的evaluate函数，用于在验证集上评估模型的性能，返回平均损失和准确率，供训练循环中每个 epoch 后的评估使用
 
 #==============================训练流程的最小闭环======================================
+def parse_args():
+    """
+    解析命令行参数
+    目前我们没有设计任何命令行参数，所有配置都放在 YAML 文件里。
+    """
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/router_sanity.yaml",
+        help="Path to the YAML config file.",
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
     """
     构建一个最小可运行的训练闭环：
@@ -20,7 +37,9 @@ def main() -> None:
     3. 构建一个简单的 MLP baseline
     4. 训练并输出每个 epoch 的结果
     """
-    config = load_config("configs/router_sanity.yaml") # 从指定路径加载 YAML 配置文件，返回一个包含配置信息的字典对象，供后续训练流程使用
+    # 0.解析命令行参数，加载配置文件
+    args = parse_args()
+    config = load_config(args.config)
     print(f"Loaded config: {config['experiment_name']}")
 
     # 1. 选择固定种子，固定随机性，减少每次结果波动。

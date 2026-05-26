@@ -2,16 +2,28 @@ import torch
 from pathlib import Path
 from models.router import MLPRouter
 
+import argparse
+
 from torch.utils.data import DataLoader, random_split
 from data.dataloader import SyntheticDataset
 from utils.config import load_config
 from utils.seed import set_seed
 from utils.metrics import evaluate
 
-def main():
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/router_sanity.yaml",
+        help="Path to the YAML config file.",
+    )
+    return parser.parse_args()
 
+def main():
     # 1.读取 config
-    config = load_config("configs/router_sanity.yaml") # 从指定路径加载配置文件，获取实验的各种参数设置
+    args = parse_args()
+    config = load_config(args.config)    
     
     # 2.打印 best checkpoint 路径
     best_ckpt_path = Path(config["outputs"]["best_checkpoint"]) # 从配置文件中获取最佳模型检查点的路径，并将其转换为 Path 对象，方便后续文件操作
