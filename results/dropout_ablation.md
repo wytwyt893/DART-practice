@@ -24,25 +24,31 @@
 
 对比配置如下：
 
-| Dropout | Config | Log | Best Checkpoint |
-|---:|---|---|---|
-| 0.0 | `configs/router_dropout_0.yaml` | `logs/router_dropout_0_log.txt` | `checkpoints/router_dropout_0_best.pth` |
-| 0.1 | `configs/router_sanity.yaml` | `logs/router_sanity_log.txt` | `checkpoints/router_sanity_best.pth` |
-| 0.3 | `configs/router_dropout_03.yaml` | `logs/router_dropout_03_log.txt` | `checkpoints/router_dropout_03_best.pth` |
+| Dropout | Seed | Config | Log | Best Checkpoint |
+|---:|---:|---|---|---|
+| 0.0 | 42 | `configs/router_dropout_0.yaml` | `logs/router_dropout_0_log.txt` | `checkpoints/router_dropout_0_best.pth` |
+| 0.1 | 42 | `configs/router_sanity.yaml` | `logs/router_sanity_log.txt` | `checkpoints/router_sanity_best.pth` |
+| 0.3 | 42 | `configs/router_dropout_03.yaml` | `logs/router_dropout_03_log.txt` | `checkpoints/router_dropout_03_best.pth` |
+| 0.0 | 123 | `configs/router_dropout_0_seed123.yaml` | `logs/router_dropout_0_seed123_log.txt` | `checkpoints/router_dropout_0_seed123_best.pth` |
+| 0.3 | 123 | `configs/router_dropout_03_seed123.yaml` | `logs/router_dropout_03_seed123_log.txt` | `checkpoints/router_dropout_03_seed123_best.pth` |
 
 ## 实验结果
 
-| Dropout | Best Epoch | Best Val Loss | Best Val Acc |
-|---:|---:|---:|---:|
-| 0.0 | 2 | 0.1330 | 0.9500 |
-| 0.1 | 2 | 0.1363 | 0.9458 |
-| 0.3 | 2 | 0.1397 | 0.9542 |
+| Dropout | Seed | Best Epoch | Best Val Loss | Best Val Acc |
+|---:|---:|---:|---:|---:|
+| 0.0 | 42 | 2 | 0.1330 | 0.9500 |
+| 0.1 | 42 | 2 | 0.1363 | 0.9458 |
+| 0.3 | 42 | 2 | 0.1397 | 0.9542 |
+| 0.0 | 123 | 2 | 0.1648 | 0.9458 |
+| 0.3 | 123 | 2 | 0.1586 | 0.9417 |
 
 ## 结果观察
 
-在当前 synthetic router sanity-check 设置下，`dropout=0.3` 取得了最高的 best validation accuracy，达到 `0.9542`。
+在当前 synthetic router sanity-check 设置下，`dropout=0.3` 在 `seed=42` 时取得了最高的 best validation accuracy，达到 `0.9542`。
 
-不过三组实验差距较小，并且 `dropout=0.0` 的 best validation loss 更低。因此当前结果只能说明在这组合成数据设置中，较大的 dropout 没有破坏训练流程，并可能带来轻微的验证准确率提升。
+不过加入 `seed=123` 后，`dropout=0.0` 的 best validation accuracy 为 `0.9458`，高于 `dropout=0.3` 的 `0.9417`。这说明当前 dropout 排序会随随机种子变化，不能得出 `dropout=0.3` 稳定更优的结论。
+
+因此，当前更稳妥的观察是：在该 synthetic route-label 设置下，dropout 对验证准确率的影响较小，且不同 seed 下排序不稳定。
 
 由于当前数据是人工构造的 synthetic route labels，不能据此得出 dropout 在真实 TableDART 或真实表格多模态任务中更优的结论。后续需要在更多随机种子、更真实的特征或真实 benchmark 上进一步验证。
 
@@ -57,10 +63,16 @@ python eval.py --config configs/router_sanity.yaml
 
 python train.py --config configs/router_dropout_03.yaml
 python eval.py --config configs/router_dropout_03.yaml
+
+python train.py --config configs/router_dropout_0_seed123.yaml
+python eval.py --config configs/router_dropout_0_seed123.yaml
+
+python train.py --config configs/router_dropout_03_seed123.yaml
+python eval.py --config configs/router_dropout_03_seed123.yaml
 ```
 
 生成汇总表格：
 
 ```powershell
-python summarize_dropout_ablation.py
+python scripts/summarize_dropout_ablation.py
 ```
