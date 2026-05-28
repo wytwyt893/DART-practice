@@ -1,221 +1,265 @@
 # DART Practice
 
-**5.25 更新**
+本项目是围绕 TableDART 动态路由思想展开的本科科研复现实验练习。当前目标不是直接复现完整 TableDART benchmark，而是先从轻量级、可控的 synthetic setting 出发，逐步搭建可复现、可替换、可扩展的动态路由实验底座。
 
 ## Project Goal
 
-- 基于UMMs统一多模态模型路线 + 动态路由网络TableDART进行的创新实验尝试
+长期方向：
 
-- 整体思路为 **“多路解耦道路 + UMMs统一多模态架构 +输入端做类似Chameleon的早期离散融合（Early-fusion）机制，将表格的复杂像素与排版彻底转化为统一的视觉 Token + 三路decoder包装成三个独立的tools交给多模态Agent框架（如LangGraph）”**
+- 以 TableDART 的动态路由机制为 baseline，学习并复现表格多模态理解中的 Text / Image / Fusion 路由选择流程。
+- 后续尝试围绕多源 gate feature、cost-aware routing、uncertainty-aware routing 或 early-fusion gate 进行小规模优化。
+- 逐步从 synthetic feature 过渡到 official-style feature，再考虑真实数据和真实专家模型。
 
-- 后续会根据UMMs路线进一步调研并优化encoder方面的创新尝试
+当前阶段定位：
 
-- 5.25：补充真实参数量、日志、检查点、配置文件读取、独立评估脚本和命令行 config 参数
+- 当前实验仍是 synthetic sanity check，不是完整 TableDART 真实 benchmark 复现。
+- 当前重点是训练基本功和科研工程闭环：`Dataset / DataLoader / train loop / eval / checkpoint / config / log / visualization`。
 
 ## Current Stage
 
-- 当前完成 synthetic sanity check，不是完整 TableDART
-- 已完成 **模拟路由数据集** - **基础双层 MLP Router** - **配置驱动训练脚本** - **日志与检查点保存** - **独立评估脚本** 的最小实验闭环
-- 当前 `train.py` 已支持从 `configs/router_sanity.yaml` 读取主要实验参数
-- 当前 `eval.py` 已支持加载 `router_sanity_best.pth` 并复现验证集指标
-- 当前 `train.py` 和 `eval.py` 均支持通过 `--config` 指定不同实验配置文件
-- 当前代码已开始将普通分类语义逐步替换为路由语义，例如 `MLPRouter`、`num_routes`、`route_labels`、`route_logits`
+### Stage 1: Single-source MLPRouter
+
+第一阶段完成了一个单输入特征版本：
+
+```text
+SyntheticDataset
+-> MLPRouter
+-> train.py
+-> eval.py
+```
+
+该阶段模拟：
+
+```text
+[batch_size, 10112] feature -> Linear -> ReLU -> Dropout -> Linear -> 3 route logits
+```
+
+已完成能力：
+
+- 基于 synthetic route labels 构造可学习信号。
+- 完成 config-driven 训练流程。
+- 完成 best / last checkpoint 保存。
+- 完成独立 `eval.py` 加载 best checkpoint 并复现验证集结果。
+- 完成 dropout ablation 初步实验。
+
+### Stage 2: Multi-source MiniDynamicSelector
+
+第二阶段将单一 feature 升级为更接近官方 TableDART 的多源 gate feature：
+
+```text
+MultiSourceSyntheticDataset
+-> MiniDynamicSelector
+-> train_multisource.py
+-> eval_multisource.py
+```
+
+当前 multi-source 数据流：
+
+```text
+text_feature     [B, 4096]
+image_feature    [B, 4096]
+question_feature [B, 1920]
+        ↓ concat(dim=1)
+combined_feature [B, 10112]
+        ↓
+MLPRouter
+        ↓
+route_logits     [B, 3]
+```
+
+这一步对齐官方 TableDART 中的核心结构：
+
+```python
+combined_gate_features = torch.cat(
+    [text_gate_feats, vlm_gate_feats, q_embeddings_for_gate],
+    dim=1,
+)
+gate_logits = self.gating_network(combined_gate_features)
+```
 
 ## Environment
 
-本项目实验在以下硬件与软件环境下完成。为保证实验结果的可复现性，建议尽量使用相同或相近的依赖版本。
-### 1. 硬件环境
-
-| 项目 | 配置 |
+| Item | Version / Config |
 |---|---|
 | GPU | NVIDIA GeForce RTX 4060 Laptop GPU |
-| 可用显卡数量 | 1 |
-| CUDA 是否可用 | True |
-
-### 2. 软件依赖
-
-| 依赖库 | 版本 |
-|---|---|
+| CUDA available | True |
 | PyTorch | 2.5.1+cu121 |
 | Torchvision | 0.20.1+cu121 |
-| NumPy | 2.2.5 |
-| Weights & Biases | 0.26.1 |
+| NumPy | 2.2.6 |
+| WandB | 0.26.1 |
 | tqdm | 4.67.3 |
 
-### 3. CUDA 配置
+环境检查脚本：
 
-| 项目 | 配置 |
-|---|---|
-| CUDA 支持 | 已启用 |
-| CUDA 版本 | 12.1 |
-| 当前显卡 | NVIDIA GeForce RTX 4060 Laptop GPU |
-
-### 4. 环境检查脚本
-
-可以使用以下脚本检查当前运行环境是否与实验环境一致：
-
-```python
-import torch
-import torchvision
-import numpy as np
-import wandb
-import tqdm
-
-print("PyTorch 版本:", torch.__version__)
-print("Torchvision 版本:", torchvision.__version__)
-print("NumPy 版本:", np.__version__)
-print("WandB 版本:", wandb.__version__)
-print("tqdm 版本:", tqdm.__version__)
-print("CUDA 是否可用:", torch.cuda.is_available())
-print("可用显卡数量:", torch.cuda.device_count())
-
-if torch.cuda.is_available():
-    print("当前显卡型号:", torch.cuda.get_device_name(0))
+```powershell
+python test_env.py
 ```
-
-### 5. 复现说明
-本项目实验基于单张 NVIDIA GeForce RTX 4060 Laptop GPU 完成，并启用了 CUDA 加速。  
-为尽可能复现实验结果，建议保持 PyTorch、Torchvision、NumPy 等核心依赖版本与上表一致。
 
 ## How to Run
 
-### 1. 训练 Router Sanity Check
+### 1. Single-source Router Sanity Check
 
-运行当前的 TableDART-router-like synthetic sanity check 训练实验：
+训练：
 
 ```powershell
 python train.py
 ```
 
-默认情况下，该命令会读取以下配置文件：
-
-```text
-configs/router_sanity.yaml
-```
-
-也可以显式指定配置文件：
+或显式指定配置：
 
 ```powershell
 python train.py --config configs/router_sanity.yaml
 ```
 
-随后在合成的 10112 维特征上训练一个双层 MLP 路由器。该路由器学习从输入特征预测三路路由标签，并将每个 epoch 的训练和验证指标写入：
-
-```text
-logs/router_sanity_log.txt
-```
-
-训练过程中会保存两个 checkpoint：
-
-```text
-checkpoints/router_sanity_last.pth
-checkpoints/router_sanity_best.pth
-```
-
-### 2. 独立评估 Best Checkpoint
-
-训练完成后，可以使用 `eval.py` 单独加载最佳 checkpoint，并在验证集上重新计算指标：
+评估 best checkpoint：
 
 ```powershell
 python eval.py
 ```
 
-也可以显式指定评估所用配置文件：
+或：
 
 ```powershell
 python eval.py --config configs/router_sanity.yaml
 ```
 
-该命令会读取：
+主要输出：
 
 ```text
+logs/router_sanity_log.txt
 checkpoints/router_sanity_best.pth
+checkpoints/router_sanity_last.pth
 ```
 
-并输出 checkpoint 中保存的 epoch、验证集路由预测准确率，以及重新评估得到的 `val_loss` 和 `val_acc`。
+### 2. Multi-source MiniDynamicSelector
 
-### 3. 绘制训练曲线
-
-如果需要根据训练日志绘制 loss 和 accuracy 曲线，可以运行：
+训练：
 
 ```powershell
-python scripts/plot_training_curves.py --log-file logs/router_sanity_log.txt --out logs/router_sanity_curves.png
+python train_multisource.py
 ```
 
-生成的曲线图会保存在：
+评估 best checkpoint：
+
+```powershell
+python eval_multisource.py
+```
+
+主要输出：
 
 ```text
-logs/router_sanity_curves.png
+logs/router_multisource_sanity_log.txt
+checkpoints/router_multisource_sanity_best.pth
+checkpoints/router_multisource_sanity_last.pth
 ```
 
-### 4. 汇总 Dropout 消融实验
+### 3. Dropout Ablation Summary
 
-当前 dropout 消融实验记录保存在：
-
-```text
-results/dropout_ablation.md
-```
-
-如果需要从日志重新生成 dropout 对比表格，可以运行：
+生成 dropout 消融实验汇总表：
 
 ```powershell
 python scripts/summarize_dropout_ablation.py
 ```
 
-## Current Result
+实验记录：
 
-当前实验配置记录在：
+```text
+results/dropout_ablation.md
+```
+
+### 4. Meeting Figures
+
+生成组会汇报用图片：
+
+```powershell
+python scripts/generate_meeting_figures.py
+python scripts/plot_mlp_router_architecture.py
+```
+
+图片输出目录：
+
+```text
+results/figures/
+```
+
+## Current Results
+
+### Stage 1 Result
+
+配置文件：
 
 ```text
 configs/router_sanity.yaml
 ```
 
-主要实验设置如下：
-
-| 项目 | 配置 |
-|---|---|
-| 输入特征维度 | 10112 |
-| 隐藏层维度 | 256 |
-| 路由数 | 3 |
-| 路由标签 | synthetic route labels |
-| Dropout | 0.1 |
-| 优化器 | Adam |
-| 学习率 | 0.001 |
-| 训练轮数 | 10 |
-| 训练 batch size | 64 |
-| 验证 batch size | 128 |
-| 最佳 checkpoint | checkpoints/router_sanity_best.pth |
-
-当前一次训练运行中的最佳验证集路由预测准确率为：
-
-```text
-val_acc = 0.9458
-```
-
-最佳 checkpoint 出现在第 2 个 epoch：
+最佳验证结果：
 
 ```text
 Best checkpoint epoch = 2
-```
-
-使用 `eval.py` 加载 `router_sanity_best.pth` 后，重新评估得到：
-
-```text
 val_loss = 0.1363
 val_acc  = 0.9458
 ```
 
-这说明当前实验已经完成了从训练、保存 checkpoint 到独立加载并复现验证集路由预测结果的闭环。
+说明：
 
-需要注意：该结果只说明当前 synthetic route labels 上的训练流程是可运行、可学习的；它不是完整 TableDART 在真实 benchmark 上的复现结果，也不代表真实表格多模态任务中的最终路由性能。
+- 该结果证明 single-source synthetic router 的训练、保存和独立评估流程已跑通。
+- 该结果不代表真实 TableDART benchmark 性能。
+
+### Stage 2 Result
+
+配置文件：
+
+```text
+configs/router_multisource_sanity.yaml
+```
+
+训练输出：
+
+```text
+Epoch 01 | train_loss=0.4233 train_acc=0.8792 | val_loss=0.0754 val_acc=0.9958
+Epoch 10 | train_loss=0.0000 train_acc=1.0000 | val_loss=0.0199 val_acc=0.9958
+```
+
+独立评估输出：
+
+```text
+Loaded checkpoint from epoch 1
+Checkpoint val_acc: 0.9958333333333333
+Eval result | val_loss=0.0754 val_acc=0.9958
+```
+
+说明：
+
+- multi-source 版本已经完成 `train -> checkpoint -> eval -> reproduce result` 闭环。
+- 当前高准确率来自人工构造的 synthetic signal，不能解读为真实任务性能提升。
+- 该阶段的主要意义是：数据流结构从单一 feature 升级为 `text/image/question` 三源 gate feature，开始对齐官方 `dynamic_selector.py`。
+
+## Project Structure
+
+```text
+DART-UMMs
+├── configs/       实验配置文件
+├── data/          SyntheticDataset / MultiSourceSyntheticDataset
+├── models/        MLPRouter / MiniDynamicSelector
+├── utils/         config / seed / metrics 等工具
+├── scripts/       汇总与可视化脚本
+├── results/       实验记录与图表
+├── train.py       single-source 训练入口
+├── eval.py        single-source 评估入口
+├── train_multisource.py
+└── eval_multisource.py
+```
+
+## Notes
+
+- `TableDART-Official/` 是本地参考仓库，已加入 `.gitignore`，不提交到本项目。
+- `checkpoints/` 和 `logs/` 默认也不提交，用于本地实验记录。
+- 当前代码优先服务于学习和复现实验闭环，后续稳定后会逐步把通用函数抽到 `utils/`。
 
 ## Next Steps
 
-后续计划包括：
-
-- 在更多随机种子上重复 dropout 消融实验，观察当前结果是否稳定。
-- 将 dropout 消融结果和曲线图整理为组会展示材料。
-- 继续清理代码中的普通分类表述，将训练、评估和可视化中的变量命名统一为路由语义，例如 `route_labels`、`route_logits`、`route_acc`。
-- 将当前 synthetic 特征逐步替换为更接近真实表格/多模态任务的特征。
-- 阅读和整理原始 TableDART baseline，优先确定最适合本科生复现的 router 模块部分。
-- 在完成 router 模块复现后，再考虑更复杂的 early-fusion、多路 decoder 和 Agent/tool 包装。
+- 新增 `results/multisource_sanity.md`，记录 Stage 2 实验目的、结构、结果和局限。
+- 为 multi-source 结构生成更直观的结构图。
+- 做 Stage 3 feature ablation：例如 `text + image + question` vs `text + image only`。
+- 逐步把 synthetic feature 替换为更接近官方 TableDART 的 gate feature。
+- 阅读并对齐官方 `models/dynamic_selector.py` 中 task loss / resource loss 的训练逻辑。

@@ -17,6 +17,9 @@ logs/
 checkpoints/
 outputs/
 
+# Cloned reference repositories
+TableDART-Official/
+
 # Data files
 data/raw/
 data/processed/
