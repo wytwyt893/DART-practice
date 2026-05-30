@@ -263,3 +263,50 @@ DART-UMMs
 - 做 Stage 3 feature ablation：例如 `text + image + question` vs `text + image only`。
 - 逐步把 synthetic feature 替换为更接近官方 TableDART 的 gate feature。
 - 阅读并对齐官方 `models/dynamic_selector.py` 中 task loss / resource loss 的训练逻辑。
+
+## Stage 4 Update: Real-format Mock Router
+
+当前已经完成 Stage 4 的真实格式数据接入闭环。该阶段开始读取官方 TableDART 仓库中的真实 `jsonl` 数据格式，但暂时仍使用 mock feature，不调用真实大模型。
+
+当前数据流：
+
+```text
+TableDART official-style jsonl
+-> RealFormatMockFeatureDataset
+-> real_format_collate_fn
+-> MiniDynamicSelector
+-> MLPRouter
+-> train_real_format_mock.py
+-> eval_real_format_mock.py
+```
+
+已完成内容：
+
+- 读取官方真实格式字段：`question_id / category / question / table / answer / image`。
+- 按任务类别均衡采样：当前每个 category 取 64 条样本，共 448 条。
+- 将真实格式样本包装成三路 mock feature：`text_feature / image_feature / question_feature`。
+- 使用 `real_format_collate_fn` 处理真实表格的变长字段，保证 DataLoader 可以正常组 batch。
+- 完成 `train -> checkpoint -> eval` 独立闭环。
+
+运行命令：
+
+```powershell
+python scripts/inspect_real_format_dataset.py
+python train_real_format_mock.py
+python eval_real_format_mock.py
+```
+
+当前结果：
+
+```text
+Loaded checkpoint: checkpoints\router_real_format_mock_best.pth
+Checkpoint epoch: 4
+Checkpoint val_acc: 0.9777777777777777
+独立评估结果 | val_loss=0.1441 val_acc=0.9778
+```
+
+阶段边界：
+
+- 当前高准确率来自 mock feature 中注入的可学习信号，不代表真实 TableDART benchmark 性能。
+- 当前 route label 是根据 `category` 构造的伪标签，不是论文中根据 expert 正确性构造的 soft target。
+- 下一步需要把 mock feature 替换为真实 encoder embedding，并继续对齐 TableDART 的 task loss / resource loss。
