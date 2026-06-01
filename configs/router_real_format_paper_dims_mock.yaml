@@ -1,0 +1,31 @@
+experiment_name: router_real_format_paper_dims_mock
+seed: 42
+
+data:
+  data_path: TableDART-Official/TableDART/data/test/test_data.jsonl
+  max_samples: null
+  samples_per_category: 64
+  text_dim: 3584
+  image_dim: 6144
+  question_dim: 384
+  num_routes: 3
+  train_ratio: 0.8
+
+model:
+  text_dim: 3584
+  image_dim: 6144
+  question_dim: 384
+  hidden_dim: 256
+  dropout: 0.1
+  num_routes: 3
+
+training:
+  epochs: 10
+  train_batch_size: 64
+  val_batch_size: 128
+  lr: 0.001
+
+outputs:
+  log_file: logs/router_real_format_paper_dims_mock_log.txt
+  last_checkpoint: checkpoints/router_real_format_paper_dims_mock_last.pth
+  best_checkpoint: checkpoints/router_real_format_paper_dims_mock_best.pth

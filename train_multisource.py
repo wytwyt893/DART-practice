@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import torch
+
 from torch.utils.data import DataLoader, random_split
 
 from data.dataloader import MultiSourceSyntheticDataset
@@ -8,6 +9,7 @@ from models.mini_dynamic_selector import MiniDynamicSelector
 from utils.config import load_config
 from utils.seed import set_seed
 
+import argparse # argparse 是 Python 标准库中的一个模块，用于解析命令行参数。在这个代码中，parse_args 函数使用 argparse 来定义和解析一个命令行参数 --config，用于指定 YAML 配置文件的路径。这样用户在运行脚本时可以通过命令行参数来指定不同的配置文件，而不需要修改代码。
 
 def move_batch_to_device(batch: dict, device: torch.device) -> tuple[torch.Tensor, ...]:
     """
@@ -127,10 +129,20 @@ def save_checkpoint(
         checkpoint_path,
     )
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/router_multisource_sanity.yaml",
+        help="Path to the YAML config file.",
+    )
+    return parser.parse_args()
 
 def main() -> None:
     # 1. 加载配置文件，获取训练参数和数据参数。
-    config_path = "configs/router_multisource_sanity.yaml"
+    args = parse_args()
+    config_path = args.config
     config = load_config(config_path)
     print(f"Loaded config: {config['experiment_name']}")
 

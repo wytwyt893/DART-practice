@@ -9,11 +9,23 @@ from train_multisource import evaluate_multisource
 from utils.config import load_config
 from utils.seed import set_seed
 
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/router_multisource_sanity.yaml",
+        help="Path to the YAML config file.",
+    )
+    return parser.parse_args()
 
 def main() -> None:
     # 1. 加载和训练阶段完全相同的配置文件。
     # eval 必须使用同一个 config，否则数据维度、模型结构或 checkpoint 路径可能对不上。
-    config_path = "configs/router_multisource_sanity.yaml"
+    args = parse_args()
+    config_path = args.config
     config = load_config(config_path)
     print(f"Loaded config: {config['experiment_name']}")
 

@@ -9,6 +9,17 @@ from train_real_format_mock import evaluate_multisource
 from utils.config import load_config
 from utils.seed import set_seed
 
+import argparse
+
+def parse_args():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--config",
+        type=str,
+        default="configs/router_real_format_mock.yaml",
+        help="Path to the YAML config file.",
+    )
+    return parser.parse_args()
 
 def main() -> None:
     """
@@ -27,7 +38,8 @@ def main() -> None:
     # - Dataset 读取的数据范围不同；
     # - 模型维度和 checkpoint 里的参数形状对不上；
     # - best checkpoint 的路径找错。
-    config_path = "configs/router_real_format_mock.yaml"
+    args = parse_args()
+    config_path = args.config
     config = load_config(config_path)
     print(f"Loaded config: {config['experiment_name']}")
 
@@ -56,6 +68,11 @@ def main() -> None:
         image_dim=config["data"]["image_dim"],
         question_dim=config["data"]["question_dim"],
         num_routes=config["data"]["num_routes"],
+        use_real_question_embedding=config["data"].get("use_real_question_embedding", False),
+        question_embed_model_id=config["data"].get(
+            "question_embed_model_id",
+            "sentence-transformers/all-MiniLM-L6-v2",
+        ),
     )
 
     # 5. 按照训练阶段相同的 train_ratio 重新切分 train/val。

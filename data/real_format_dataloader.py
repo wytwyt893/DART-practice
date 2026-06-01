@@ -3,7 +3,7 @@ from pathlib import Path
 
 import torch
 from torch.utils.data import Dataset
-
+from utils.question_embedding import get_question_embedding_for_gate
 
 class RealFormatMockFeatureDataset(Dataset):
     """
@@ -29,6 +29,8 @@ class RealFormatMockFeatureDataset(Dataset):
         image_dim: int = 4096,
         question_dim: int = 1920,
         num_routes: int = 3,
+        use_real_question_embedding: bool = False,
+        question_embed_model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
     ):
         if num_routes != 3: #加判断，因为目前 mock route label 的构造规则是固定的，针对 3 条路由设计的。
             raise ValueError("RealFormatMockFeatureDataset currently expects num_routes=3.")
@@ -38,6 +40,14 @@ class RealFormatMockFeatureDataset(Dataset):
         self.image_dim = image_dim
         self.question_dim = question_dim
         self.num_routes = num_routes
+
+        # use_real_question_embedding 和 question_embed_model_id 是我们为 Stage 4 新增的选项
+        # 用来控制 question_feature 的生成方式。
+        # use_real_question_embedding 是一个布尔值，表示我们是否要使用真实问题嵌入来生成 question_feature。
+        self.use_real_question_embedding = use_real_question_embedding 
+        # question_embed_model_id 是一个字符串，表示我们用来生成问题嵌入的模型 ID
+        # 这个模型会被 get_question_embedding_for_gate 函数调用，用来生成每个问题的特征向量。
+        self.question_embed_model_id = question_embed_model_id
 
         if not self.data_path.exists(): #加个文件存在的检查，避免后续打开文件时报错不清晰。
             raise FileNotFoundError(f"Data file not found: {self.data_path}")
@@ -70,12 +80,50 @@ class RealFormatMockFeatureDataset(Dataset):
         if not self.samples:
             raise ValueError(f"No samples loaded from {self.data_path}")
 
-        self.text_features = torch.randn(len(self.samples), text_dim)#为每个样本生成随机的文本、图像和问题特征。这些特征目前是随机的，主要目的是为了让数据结构完整，能够通过后续的训练流程。
+        self.text_features = torch.randn(len(self.samples), text_dim) #目前的文本特征是随机生成的，维度为 text_dim。后续我们会替换成真实大模型输出的特征。
         self.image_features = torch.randn(len(self.samples), image_dim)
-        self.question_features = torch.randn(len(self.samples), question_dim)
 
-        # Stage 4 暂时用 category 构造 mock route label。
-        # 这个规则只是为了让 real-format 数据也能跑通 router 训练闭环。
+        # question_feature 的生成比较特殊
+        # 因为我们提供了 use_real_question_embedding 选项
+        # if判断里，如果 use_real_question_embedding 为 True（就是我们想用真实问题嵌入的情况）
+        # 就会调用 get_question_embedding_for_gate 函数来生成问题的特征向量
+        # 如果为 False（就是我们暂时不想用真实嵌入，先用随机特征验证流程的情况）
+        # 则直接生成随机特征
+        if self.use_real_question_embedding:
+            embed_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+            # 初始化一个列表来存储每个样本的问题特征向量
+            # 我们会遍历所有样本，提取其中的 question 字段
+            # 并调用 get_question_embedding_for_gate 函数（来自 question_embedding.py）来获取该问题的嵌入向量
+            # 这个函数需要传入问题文本、设备信息和模型 ID，返回一个特征向量
+            # 我们将所有特征向量堆叠成一个 tensor，作为 self.question_features。
+            question_features = []
+
+            # 遍历每个样本，提取 question 字段并生成对应的特征向量
+            for item in self.samples:
+                question = item.get("question", "")
+                question_embedding = get_question_embedding_for_gate(
+                    question_text=question,
+                    device=embed_device,
+                    model_id=self.question_embed_model_id,
+                )
+                question_features.append(question_embedding)
+            
+            # torch.stack 将列表中的所有特征向量堆叠成一个二维 tensor
+            # 形状为 (样本数, question_dim)
+            # 每一行对应一个样本的问题特征
+            self.question_features = torch.stack(question_features)
+
+            # 加个检查，确保生成的 question_features 的维度是我们预期的 question_dim
+            # 否则可能会在后续训练中出现维度不匹配的错误
+            if self.question_features.shape[1] != question_dim:
+                raise ValueError(
+                    f"Question embedding dim mismatch: "
+                    f"got {self.question_features.shape[1]}, expected {question_dim}"
+                )
+        else:
+            self.question_features = torch.randn(len(self.samples), question_dim)
+
         self.route_labels = torch.tensor(
             [self._build_mock_route_label(item) for item in self.samples],
             dtype=torch.long,
@@ -118,7 +166,11 @@ class RealFormatMockFeatureDataset(Dataset):
 
         self.text_features[text_rows[:, None], text_idx] += signal_strength #在文本特征中，针对 route label 为 0 的样本行（text_rows），在指定的特征维度索引（text_idx）上注入一个强信号（signal_strength）。
         self.image_features[image_rows[:, None], image_idx] += signal_strength #在图像特征中，针对 route label 为 1 的样本行（image_rows），在指定的特征维度索引（image_idx）上注入一个强信号（signal_strength）。
-        self.question_features[question_rows[:, None], question_idx] += signal_strength
+        # if判断里，如果 use_real_question_embedding 为 False（即我们不使用真实问题嵌入，而是使用随机特征），我们才会在 question_features 中注入信号
+        # 因为如果 use_real_question_embedding 为 True，我们的 question_features 是通过调用 get_question_embedding_for_gate 函数生成的真实嵌入向量
+        # 这些向量已经包含了问题的语义信息，我们不希望再额外注入一个 mock 信号，以免干扰真实嵌入的表达能力。
+        if not self.use_real_question_embedding:
+            self.question_features[question_rows[:, None], question_idx] += signal_strength
 
     def __len__(self) -> int:
         return len(self.samples)
