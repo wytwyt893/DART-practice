@@ -73,6 +73,11 @@ def main() -> None:
             "question_embed_model_id",
             "sentence-transformers/all-MiniLM-L6-v2",
         ),
+
+        # 保证 train 和 eval 使用同一套 cached question feature
+        # 否则 eval 结果不可信
+        use_cached_question_features=config["data"].get("use_cached_question_features", False),
+        question_feature_path=config["data"].get("question_feature_path"),
     )
 
     # 5. 按照训练阶段相同的 train_ratio 重新切分 train/val。

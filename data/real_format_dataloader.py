@@ -31,6 +31,8 @@ class RealFormatMockFeatureDataset(Dataset):
         num_routes: int = 3,
         use_real_question_embedding: bool = False,
         question_embed_model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
+        use_cached_question_features: bool = False, #这个参数用来控制是否使用预先计算好的 question_feature 文件。如果为 True，我们会尝试从指定路径加载 question_feature，而不是在运行时调用 get_question_embedding_for_gate 来生成它。这对于加速训练过程非常有用，尤其是在 question_feature 的计算比较耗时的情况下。
+        question_feature_path: str | None = None, #这个参数指定了预先计算好的 question_feature 文件的路径。只有当 use_real_question_embedding 为 True 且 use_cached_question_features 为 True 时，这个参数才会被使用。我们会从这个路径加载 question_feature，而不是在运行时调用 get_question_embedding_for_gate 来生成它。这对于加速训练过程非常有用，尤其是在 question_feature 的计算比较耗时的情况下。
     ):
         if num_routes != 3: #加判断，因为目前 mock route label 的构造规则是固定的，针对 3 条路由设计的。
             raise ValueError("RealFormatMockFeatureDataset currently expects num_routes=3.")
@@ -48,6 +50,11 @@ class RealFormatMockFeatureDataset(Dataset):
         # question_embed_model_id 是一个字符串，表示我们用来生成问题嵌入的模型 ID
         # 这个模型会被 get_question_embedding_for_gate 函数调用，用来生成每个问题的特征向量。
         self.question_embed_model_id = question_embed_model_id
+
+        # 把 config 传进来的缓存开关保存到 Dataset 对象里
+        # 后面生成 question_features 时才能判断走哪条分支
+        self.use_cached_question_features = use_cached_question_features
+        self.question_feature_path = question_feature_path
 
         if not self.data_path.exists(): #加个文件存在的检查，避免后续打开文件时报错不清晰。
             raise FileNotFoundError(f"Data file not found: {self.data_path}")
@@ -83,23 +90,57 @@ class RealFormatMockFeatureDataset(Dataset):
         self.text_features = torch.randn(len(self.samples), text_dim) #目前的文本特征是随机生成的，维度为 text_dim。后续我们会替换成真实大模型输出的特征。
         self.image_features = torch.randn(len(self.samples), image_dim)
 
+#-----------------------------------------以下代码部分为 question_feature 的生成逻辑，包含了多个选项和分支-----------------------------------------#
         # question_feature 的生成比较特殊
         # 因为我们提供了 use_real_question_embedding 选项
         # if判断里，如果 use_real_question_embedding 为 True（就是我们想用真实问题嵌入的情况）
         # 就会调用 get_question_embedding_for_gate 函数来生成问题的特征向量
         # 如果为 False（就是我们暂时不想用真实嵌入，先用随机特征验证流程的情况）
         # 则直接生成随机特征
-        if self.use_real_question_embedding:
+
+        # 同时，我们还提供了 use_cached_question_features 选项
+        # 如果这个选项为 True
+        # 我们会尝试从指定的 question_feature_path 加载预先计算好的 question_feature
+        # 而不是在运行时调用 get_question_embedding_for_gate 来生成它。
+        # 这对于加速训练过程非常有用
+        # 尤其是在 question_feature 的计算比较耗时的情况下。
+
+        # 优先级 1: 如果设置 use_cached_question_features=True，就直接 torch.load 读缓存
+        # 优先级 2: 否则如果 use_real_question_embedding=True，就现场调用 MiniLM 抽 embedding
+        # 优先级 3: 否则继续用 mock random feature
+        if self.use_cached_question_features:
+            if self.question_feature_path is None:
+                raise ValueError(
+                    "question_feature_path must be provided when use_cached_question_features=True."
+                )
+
+            feature_path = Path(self.question_feature_path)
+            if not feature_path.exists():
+                raise FileNotFoundError(f"Cached question feature file not found: {feature_path}")
+
+            # 告诉 PyTorch 只按权重/tensor 安全加载，不允许执行 pickle 里的任意对象逻辑
+            self.question_features = torch.load(
+                feature_path,
+                map_location="cpu",
+                weights_only=True,
+            )
+
+            if self.question_features.shape[0] != len(self.samples):
+                raise ValueError(
+                    f"Cached question feature sample size mismatch: "
+                    f"got {self.question_features.shape[0]}, expected {len(self.samples)}"
+                )
+
+            if self.question_features.shape[1] != question_dim:
+                raise ValueError(
+                    f"Cached question feature dim mismatch: "
+                    f"got {self.question_features.shape[1]}, expected {question_dim}"
+                )
+
+        elif self.use_real_question_embedding:
             embed_device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-            # 初始化一个列表来存储每个样本的问题特征向量
-            # 我们会遍历所有样本，提取其中的 question 字段
-            # 并调用 get_question_embedding_for_gate 函数（来自 question_embedding.py）来获取该问题的嵌入向量
-            # 这个函数需要传入问题文本、设备信息和模型 ID，返回一个特征向量
-            # 我们将所有特征向量堆叠成一个 tensor，作为 self.question_features。
             question_features = []
-
-            # 遍历每个样本，提取 question 字段并生成对应的特征向量
             for item in self.samples:
                 question = item.get("question", "")
                 question_embedding = get_question_embedding_for_gate(
@@ -108,19 +149,15 @@ class RealFormatMockFeatureDataset(Dataset):
                     model_id=self.question_embed_model_id,
                 )
                 question_features.append(question_embedding)
-            
-            # torch.stack 将列表中的所有特征向量堆叠成一个二维 tensor
-            # 形状为 (样本数, question_dim)
-            # 每一行对应一个样本的问题特征
+
             self.question_features = torch.stack(question_features)
 
-            # 加个检查，确保生成的 question_features 的维度是我们预期的 question_dim
-            # 否则可能会在后续训练中出现维度不匹配的错误
             if self.question_features.shape[1] != question_dim:
                 raise ValueError(
                     f"Question embedding dim mismatch: "
                     f"got {self.question_features.shape[1]}, expected {question_dim}"
                 )
+
         else:
             self.question_features = torch.randn(len(self.samples), question_dim)
 
@@ -131,6 +168,8 @@ class RealFormatMockFeatureDataset(Dataset):
 
         self._inject_mock_signal()
 
+
+#-------------------------以下代码部分为根据真实样本的 category 构造一个临时 route label 的逻辑，包含了具体的 mock 规则---------------------------------------#
     def _build_mock_route_label(self, item: dict) -> int:
         """
         根据真实样本的 category 构造一个临时 route label。
@@ -166,10 +205,18 @@ class RealFormatMockFeatureDataset(Dataset):
 
         self.text_features[text_rows[:, None], text_idx] += signal_strength #在文本特征中，针对 route label 为 0 的样本行（text_rows），在指定的特征维度索引（text_idx）上注入一个强信号（signal_strength）。
         self.image_features[image_rows[:, None], image_idx] += signal_strength #在图像特征中，针对 route label 为 1 的样本行（image_rows），在指定的特征维度索引（image_idx）上注入一个强信号（signal_strength）。
-        # if判断里，如果 use_real_question_embedding 为 False（即我们不使用真实问题嵌入，而是使用随机特征），我们才会在 question_features 中注入信号
-        # 因为如果 use_real_question_embedding 为 True，我们的 question_features 是通过调用 get_question_embedding_for_gate 函数生成的真实嵌入向量
-        # 这些向量已经包含了问题的语义信息，我们不希望再额外注入一个 mock 信号，以免干扰真实嵌入的表达能力。
-        if not self.use_real_question_embedding:
+
+        # if判断里，如果 use_real_question_embedding 为 False（即我们不使用真实问题嵌入，而是使用随机特征）
+        # 我们才会在 question_features 中注入信号
+        # 因为如果 use_real_question_embedding 为 True
+        # 我们的 question_features 是通过调用 get_question_embedding_for_gate 函数生成的真实嵌入向量
+        # 这些向量已经包含了问题的语义信息
+        # 我们不希望再额外注入一个 mock 信号
+        # 以免干扰真实嵌入的表达能力。
+
+        # 只有 question_feature 是纯 mock random 时，才注入人工 signal
+        # 如果是现场 MiniLM embedding 或缓存 MiniLM embedding，都不污染它
+        if not self.use_real_question_embedding and not self.use_cached_question_features:
             self.question_features[question_rows[:, None], question_idx] += signal_strength
 
     def __len__(self) -> int:

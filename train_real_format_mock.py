@@ -171,11 +171,17 @@ def main() -> None:
         image_dim=config["data"]["image_dim"],
         question_dim=config["data"]["question_dim"],
         num_routes=config["data"]["num_routes"], 
+
         use_real_question_embedding=config["data"].get("use_real_question_embedding", False), #是否使用真实问题嵌入，False 表示使用随机特征
         question_embed_model_id=config["data"].get( #生成问题嵌入使用的模型 ID，默认为 "sentence-transformers/all-MiniLM-L6-v2"
             "question_embed_model_id",
             "sentence-transformers/all-MiniLM-L6-v2",
         ),
+
+        #新增的两个参数专门用于控制 question_feature 的生成方式。
+        # 把 YAML里的缓存开关传给 Dataset
+        use_cached_question_features=config["data"].get("use_cached_question_features", False),
+        question_feature_path=config["data"].get("question_feature_path"),
     )
 
     # 5. 划分训练集和验证集，创建对应的 DataLoader。
