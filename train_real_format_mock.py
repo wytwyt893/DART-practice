@@ -178,6 +178,15 @@ def main() -> None:
             "sentence-transformers/all-MiniLM-L6-v2",
         ),
 
+        # 这两个参数控制 text_feature 的来源。
+        # 如果 use_cached_text_features=True：
+        #   Dataset 会从 text_feature_path 读取 scripts/extract_text_features.py
+        #   离线提取好的真实 TableGPT2 gate feature。
+        # 如果为 False：
+        #   Dataset 仍然使用随机 mock text_feature，继续用于流程验证。
+        use_cached_text_features=config["data"].get("use_cached_text_features", False),
+        text_feature_path=config["data"].get("text_feature_path"),
+
         #新增的两个参数专门用于控制 question_feature 的生成方式。
         # 把 YAML里的缓存开关传给 Dataset
         use_cached_question_features=config["data"].get("use_cached_question_features", False),

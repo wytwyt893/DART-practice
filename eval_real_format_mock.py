@@ -74,6 +74,13 @@ def main() -> None:
             "sentence-transformers/all-MiniLM-L6-v2",
         ),
 
+        # 保证 eval 和 train 使用同一套 cached text feature。
+        # 如果训练时使用真实 TableGPT2 text_features.pt，
+        # eval 也必须读取同一个 text_feature_path，
+        # 否则评估时输入分布会和训练时不同。
+        use_cached_text_features=config["data"].get("use_cached_text_features", False),
+        text_feature_path=config["data"].get("text_feature_path"),
+
         # 保证 train 和 eval 使用同一套 cached question feature
         # 否则 eval 结果不可信
         use_cached_question_features=config["data"].get("use_cached_question_features", False),

@@ -31,6 +31,8 @@ class RealFormatMockFeatureDataset(Dataset):
         num_routes: int = 3,
         use_real_question_embedding: bool = False,
         question_embed_model_id: str = "sentence-transformers/all-MiniLM-L6-v2",
+        use_cached_text_features: bool = False,
+        text_feature_path: str | None = None,
         use_cached_question_features: bool = False, #这个参数用来控制是否使用预先计算好的 question_feature 文件。如果为 True，我们会尝试从指定路径加载 question_feature，而不是在运行时调用 get_question_embedding_for_gate 来生成它。这对于加速训练过程非常有用，尤其是在 question_feature 的计算比较耗时的情况下。
         question_feature_path: str | None = None, #这个参数指定了预先计算好的 question_feature 文件的路径。只有当 use_real_question_embedding 为 True 且 use_cached_question_features 为 True 时，这个参数才会被使用。我们会从这个路径加载 question_feature，而不是在运行时调用 get_question_embedding_for_gate 来生成它。这对于加速训练过程非常有用，尤其是在 question_feature 的计算比较耗时的情况下。
     ):
@@ -55,6 +57,8 @@ class RealFormatMockFeatureDataset(Dataset):
         # 后面生成 question_features 时才能判断走哪条分支
         self.use_cached_question_features = use_cached_question_features
         self.question_feature_path = question_feature_path
+        self.use_cached_text_features = use_cached_text_features
+        self.text_feature_path = text_feature_path
 
         if not self.data_path.exists(): #加个文件存在的检查，避免后续打开文件时报错不清晰。
             raise FileNotFoundError(f"Data file not found: {self.data_path}")
@@ -87,7 +91,50 @@ class RealFormatMockFeatureDataset(Dataset):
         if not self.samples:
             raise ValueError(f"No samples loaded from {self.data_path}")
 
-        self.text_features = torch.randn(len(self.samples), text_dim) #目前的文本特征是随机生成的，维度为 text_dim。后续我们会替换成真实大模型输出的特征。
+        # text_feature 有两种来源：
+        # 1. use_cached_text_features=False:
+        #    继续使用随机 mock 特征，用来做流程验证。
+        # 2. use_cached_text_features=True:
+        #    从 text_feature_path 读取离线提取好的真实 Text Expert gate feature。
+        #
+        # 这里的真实 text feature 对应 scripts/extract_text_features.py 的输出：
+        # prompt_for_text_expert -> TableGPT2 input embedding -> masked mean pooling
+        #
+        # 注意：
+        # 加载缓存时必须检查两个维度：
+        # - 第 0 维样本数必须等于 len(self.samples)，否则 feature 和样本会错位；
+        # - 第 1 维特征维度必须等于 text_dim，例如论文设置里的 3584。
+        if self.use_cached_text_features:
+            if self.text_feature_path is None:
+                raise ValueError(
+                    "text_feature_path must be provided when use_cached_text_features=True."
+                )
+
+            feature_path = Path(self.text_feature_path)
+            if not feature_path.exists():
+                raise FileNotFoundError(f"Cached text feature file not found: {feature_path}")
+
+            self.text_features = torch.load(
+                feature_path,
+                map_location="cpu",
+                weights_only=True,
+            )
+
+            if self.text_features.shape[0] != len(self.samples):
+                raise ValueError(
+                    f"Cached text feature sample size mismatch: "
+                    f"got {self.text_features.shape[0]}, expected {len(self.samples)}"
+                )
+
+            if self.text_features.shape[1] != text_dim:
+                raise ValueError(
+                    f"Cached text feature dim mismatch: "
+                    f"got {self.text_features.shape[1]}, expected {text_dim}"
+                )
+
+        else:
+            self.text_features = torch.randn(len(self.samples), text_dim) #目前的文本特征是随机生成的，维度为 text_dim。后续我们会替换成真实大模型输出的特征。
+
         self.image_features = torch.randn(len(self.samples), image_dim)
 
 #-----------------------------------------以下代码部分为 question_feature 的生成逻辑，包含了多个选项和分支-----------------------------------------#
@@ -203,7 +250,11 @@ class RealFormatMockFeatureDataset(Dataset):
         image_rows = torch.where(self.route_labels == 1)[0]
         question_rows = torch.where(self.route_labels == 2)[0]
 
-        self.text_features[text_rows[:, None], text_idx] += signal_strength #在文本特征中，针对 route label 为 0 的样本行（text_rows），在指定的特征维度索引（text_idx）上注入一个强信号（signal_strength）。
+        # 只有 text_feature 还是 mock random 时，才注入人工 signal。
+        # 如果 use_cached_text_features=True，说明 text_features 已经来自真实 TableGPT2，
+        # 再注入 mock signal 会污染真实文本专家特征，所以必须跳过。
+        if not self.use_cached_text_features:
+            self.text_features[text_rows[:, None], text_idx] += signal_strength #在文本特征中，针对 route label 为 0 的样本行（text_rows），在指定的特征维度索引（text_idx）上注入一个强信号（signal_strength）。
         self.image_features[image_rows[:, None], image_idx] += signal_strength #在图像特征中，针对 route label 为 1 的样本行（image_rows），在指定的特征维度索引（image_idx）上注入一个强信号（signal_strength）。
 
         # if判断里，如果 use_real_question_embedding 为 False（即我们不使用真实问题嵌入，而是使用随机特征）
