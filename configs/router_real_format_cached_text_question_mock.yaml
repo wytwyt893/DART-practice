@@ -1,0 +1,125 @@
+# Stage 5.3C: cached real Text + cached real Question + mock Image
+#
+# 这个配置文件用于训练/评估一个更接近 TableDART 原文输入结构的 mini router。
+#
+# 和上一个配置 router_real_format_cached_question_mock.yaml 的区别：
+#   上一个配置：
+#     text_feature     = mock random feature
+#     question_feature = cached real MiniLM feature
+#     image_feature    = mock random feature
+#
+#   当前配置：
+#     text_feature     = cached real TableGPT2-7B gate feature
+#     question_feature = cached real MiniLM feature
+#     image_feature    = mock random feature
+#
+# 对齐 TableDART 原文动态路由输入：
+#   官方 DynamicExpertSelector 会把下面三类特征拼接后送入 MLP gate：
+#
+#     [text_gate_feats, vlm_gate_feats, q_embeddings_for_gate]
+#
+#   当前实验中：
+#     text_gate_feats         已经由 TableGPT2-7B 离线提取得到，维度 3584
+#     q_embeddings_for_gate   已经由 all-MiniLM-L6-v2 离线提取得到，维度 384
+#     vlm_gate_feats          仍然暂时用 mock image_feature 占位，维度 6144
+#
+# 重要边界：
+#   1. 这还不是完整 TableDART benchmark 复现。
+#   2. image_feature 还没有由 Ovis2-8B / VLM 真实提取。
+#   3. route_label 仍然是 data/real_format_dataloader.py 中按 category 构造的 mock label。
+#   4. 这个实验的目的，是验证现有训练流程能否消费真实 TableGPT2 text feature。
+
+experiment_name: router_real_format_cached_text_question_mock
+seed: 42
+
+data:
+  # 官方 TableDART 仓库里的真实格式 jsonl。
+  # 里面包含 question / table / answer / image / category / question_id 等字段。
+  data_path: TableDART-Official/TableDART/data/test/test_data.jsonl
+
+  # max_samples 为 null 表示不做全局截断。
+  # samples_per_category=64 表示每个 category 取 64 条样本。
+  # 当前官方 test_data.jsonl 共有 7 个 category，所以总样本数是 448。
+  max_samples: null
+  samples_per_category: 64
+
+  # 下面三个维度对齐 TableDART 论文附录中的 gate 输入维度：
+  #   Table-as-Text Model Features: 3584
+  #   Table-as-Image Model Features: 6144
+  #   Question Embedding: 384
+  #
+  # 三者拼接后总维度：
+  #   3584 + 6144 + 384 = 10112
+  text_dim: 3584
+  image_dim: 6144
+  question_dim: 384
+  num_routes: 3
+  train_ratio: 0.8
+
+  # text_feature 来源控制。
+  #
+  # use_cached_text_features=true 表示：
+  #   不再使用随机 mock text_feature；
+  #   而是从 text_feature_path 读取 scripts/extract_text_features.py
+  #   离线提取好的真实 TableGPT2-7B gate feature。
+  #
+  # 这个文件来自 AutoDL 上的真实提取流程：
+  #   prompt_for_text_expert
+  #   -> TableGPT2 tokenizer
+  #   -> TableGPT2 input embedding
+  #   -> masked mean pooling
+  #   -> text_features.pt
+  #
+  # 期望形状：
+  #   torch.Size([448, 3584])
+  use_cached_text_features: true
+  text_feature_path: data/features/router_real_format_cached_question_mock/text_features.pt
+  text_model_id: LLM-Research/TableGPT2-7B
+  text_feature_extractor: scripts/extract_text_features.py
+
+  # question_feature 来源控制。
+  #
+  # use_real_question_embedding=false:
+  #   训练时不现场调用 MiniLM，避免每次训练都重复加载模型。
+  #
+  # use_cached_question_features=true:
+  #   直接读取已经缓存好的真实 question embedding。
+  #
+  # 期望形状：
+  #   torch.Size([448, 384])
+  use_real_question_embedding: false
+  use_cached_question_features: true
+  question_feature_path: data/features/router_real_format_real_question_mock/question_features.pt
+  question_embed_model_id: sentence-transformers/all-MiniLM-L6-v2
+
+model:
+  # MiniDynamicSelector 会接收三路输入：
+  #   text_feature:     [batch_size, 3584]
+  #   image_feature:    [batch_size, 6144]
+  #   question_feature: [batch_size, 384]
+  #
+  # 然后在模型内部拼接成：
+  #   combined_feature: [batch_size, 10112]
+  #
+  # 最后送入 MLP router 输出 3 条路径的 logits。
+  text_dim: 3584
+  image_dim: 6144
+  question_dim: 384
+  hidden_dim: 256
+  dropout: 0.1
+  num_routes: 3
+
+training:
+  # 这里仍然沿用 mini router sanity/reproduction 阶段的轻量训练设置。
+  # 注意：当前训练的仍是小型 MLP router，不是在微调 TableGPT2-7B。
+  epochs: 10
+  train_batch_size: 64
+  val_batch_size: 128
+  lr: 0.001
+
+outputs:
+  # 为了避免覆盖上一阶段 cached_question_mock 的日志和 checkpoint，
+  # 当前实验单独使用新的输出文件名。
+  log_file: logs/router_real_format_cached_text_question_mock_log.txt
+  last_checkpoint: checkpoints/router_real_format_cached_text_question_mock_last.pth
+  best_checkpoint: checkpoints/router_real_format_cached_text_question_mock_best.pth
