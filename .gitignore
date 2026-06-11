@@ -22,6 +22,7 @@ TableDART-Official/
 
 # Data files
 data/raw/
+data/images/
 data/processed/
 *.csv
 *.tsv
